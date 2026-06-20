@@ -1,0 +1,17 @@
+{
+    "chat.tools.terminal.autoApprove": {
+        "dotnet build": true,
+        "/^dotnet --version; dotnet build \\.\\\\OracleBi\\.UniversalPrint\\.sln 2>&1 \\| Select-Object -Last 80$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "Test-Path": true,
+        "Get-Command": true,
+        "Out-Null": true,
+        "ForEach-Object": true,
+        "dotnet sln": true,
+        "dotnet test": true,
+        "dotnet package": true,
+        "ConvertFrom-Json": true
+    }
+}

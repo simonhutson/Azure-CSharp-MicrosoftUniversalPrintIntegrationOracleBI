@@ -1,0 +1,24 @@
+{
+  "version": "2.0",
+  "logging": {
+    "applicationInsights": {
+      "samplingSettings": {
+        "isEnabled": true,
+        "excludedTypes": "Request"
+      }
+    },
+    "logLevel": {
+      "default": "Information",
+      "OracleBi.UniversalPrint": "Information"
+    }
+  },
+  "extensions": {
+    "queues": {
+      "maxPollingInterval": "00:00:10",
+      "visibilityTimeout": "00:00:30",
+      "batchSize": 16,
+      "maxDequeueCount": 5,
+      "newBatchThreshold": 8
+    }
+  }
+}

@@ -1,0 +1,19 @@
+// yaml-language-server: $schema=https://raw.githubusercontent.com/Azure/azure-dev/main/schemas/v1.0/azure.yaml.json
+name: oraclebi-universalprint
+metadata:
+  template: oraclebi-universalprint@1.0.0
+
+# Hosting decision: Azure Functions on the Flex Consumption plan.
+# Both Oracle BI Publisher and Microsoft Graph are public endpoints and the app makes only
+# REST calls (no native dependencies), so a serverless plan is the best fit: scale-to-zero,
+# per-instance concurrency, identity-based connections, and no container/image lifecycle to own.
+# See README "Hosting & deployment" for the full rationale and when to revisit.
+infra:
+  provider: bicep
+  path: infra
+
+services:
+  functions:
+    project: ./src/OracleBi.UniversalPrint.Functions
+    language: dotnet
+    host: function

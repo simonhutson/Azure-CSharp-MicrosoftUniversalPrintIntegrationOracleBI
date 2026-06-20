@@ -1,0 +1,27 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "environmentName": {
+      "value": "${AZURE_ENV_NAME}"
+    },
+    "location": {
+      "value": "${AZURE_LOCATION}"
+    },
+    "universalPrintTenantId": {
+      "value": "${UNIVERSALPRINT_TENANT_ID=${AZURE_TENANT_ID}}"
+    },
+    "universalPrintDefaultPrinterId": {
+      "value": "${UNIVERSALPRINT_DEFAULT_PRINTER_ID}"
+    },
+    "oracleBiBaseUrl": {
+      "value": "${ORACLEBI_BASE_URL}"
+    },
+    "oracleBiUsername": {
+      "value": "${ORACLEBI_USERNAME}"
+    },
+    "oracleBiPassword": {
+      "value": "${ORACLEBI_PASSWORD}"
+    }
+  }
+}
