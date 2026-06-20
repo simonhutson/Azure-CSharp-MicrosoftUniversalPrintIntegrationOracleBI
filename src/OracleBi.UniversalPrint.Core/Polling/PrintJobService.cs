@@ -32,9 +32,25 @@ public sealed class PrintJobService
         _logger = logger;
     }
 
-    /// <summary>Renders + submits the report, then enqueues the first poll message.</summary>
+    /// <summary>Renders + submits the report under <paramref name="correlationId"/>, then enqueues the first poll message.</summary>
     public async Task<PrintJob> SubmitAndTrackAsync(
-        OracleBiReportRequest request, CancellationToken cancellationToken = default)
+        OracleBiReportRequest request, string correlationId, CancellationToken cancellationToken = default)
+    {
+        var job = await SubmitAsync(request, correlationId, cancellationToken);
+        await ScheduleFirstPollAsync(
+            job.CorrelationId, job.PrinterId!, job.UniversalPrintJobId!, cancellationToken);
+        return job;
+    }
+
+    /// <summary>
+    /// Renders + submits the report to Universal Print under <paramref name="correlationId"/> and
+    /// returns the tracked job. This is the <em>irreversible</em> step (it creates a Graph print
+    /// job); callers must not retry it without idempotency protection. Tracking is scheduled
+    /// separately via <see cref="ScheduleFirstPollAsync"/> so the two can be sequenced around a
+    /// durable idempotency commit.
+    /// </summary>
+    public async Task<PrintJob> SubmitAsync(
+        OracleBiReportRequest request, string correlationId, CancellationToken cancellationToken = default)
     {
         // Defence in depth: only allow-listed report paths may be printed.
         if (!_security.IsReportPathAllowed(request.ReportPath))
@@ -44,18 +60,30 @@ public sealed class PrintJobService
             throw new ReportPathNotAllowedException(request.ReportPath);
         }
 
-        var job = await _provider.SubmitAsync(request, cancellationToken);
+        var job = await _provider.SubmitAsync(request, correlationId, cancellationToken);
 
         if (job.UniversalPrintJobId is null || job.PrinterId is null)
         {
             throw new InvalidOperationException("Submitted job is missing printer or Universal Print job id.");
         }
 
+        return job;
+    }
+
+    /// <summary>
+    /// Enqueues the first status poll for an already-created Universal Print job. Safe to call more
+    /// than once for the same job (a duplicate poll is harmless), which is what lets a redelivered
+    /// submit recover tracking without re-submitting.
+    /// </summary>
+    public async Task ScheduleFirstPollAsync(
+        string correlationId, string printerId, string universalPrintJobId,
+        CancellationToken cancellationToken = default)
+    {
         var poll = new PollMessage
         {
-            CorrelationId = job.CorrelationId,
-            PrinterId = job.PrinterId,
-            UniversalPrintJobId = job.UniversalPrintJobId,
+            CorrelationId = correlationId,
+            PrinterId = printerId,
+            UniversalPrintJobId = universalPrintJobId,
             PollAttempts = 0,
             ScheduledFor = DateTimeOffset.UtcNow + _polling.InitialRepollDelay,
         };
@@ -63,9 +91,7 @@ public sealed class PrintJobService
         await _queue.EnqueuePollAsync(poll, _polling.InitialRepollDelay, cancellationToken);
         _logger.LogInformation(
             "Tracking print job {CorrelationId}; first poll scheduled in {Delay}.",
-            job.CorrelationId, _polling.InitialRepollDelay);
-
-        return job;
+            correlationId, _polling.InitialRepollDelay);
     }
 }
 

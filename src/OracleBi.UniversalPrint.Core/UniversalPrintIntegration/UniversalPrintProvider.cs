@@ -68,18 +68,19 @@ public sealed class UniversalPrintProvider : IUniversalPrintProvider
 
     public async Task<PrintJob> SubmitAsync(
         OracleBiReportRequest request,
+        string correlationId,
         CancellationToken cancellationToken = default)
     {
         var document = await _oracleBiClient.RenderReportAsync(request, cancellationToken);
-        return await SubmitDocumentAsync(request, document, cancellationToken);
+        return await SubmitDocumentAsync(request, document, correlationId, cancellationToken);
     }
 
     public async Task<PrintJob> SubmitDocumentAsync(
         OracleBiReportRequest request,
         OracleBiDocument document,
+        string correlationId,
         CancellationToken cancellationToken = default)
     {
-        var correlationId = Guid.NewGuid().ToString("N");
         var printerId = request.PrinterId ?? _options.DefaultPrinterId;
 
         using var activity = _telemetry.StartActivity("universalprint.submit", correlationId);
@@ -150,35 +151,10 @@ public sealed class UniversalPrintProvider : IUniversalPrintProvider
 
         return new PrintJobStatus
         {
-            State = MapState(processingState, details),
+            State = UniversalPrintStatusMapper.MapState(processingState, details),
             RawProcessingState = processingState,
             Description = description,
             Details = details,
-        };
-    }
-
-    /// <summary>Maps Universal Print's processingState/details into our normalised state.</summary>
-    private static PrintJobState MapState(string? processingState, IReadOnlyList<string> details)
-    {
-        if (details.Any(d => d.Equals("completedSuccessfully", StringComparison.OrdinalIgnoreCase)))
-        {
-            return PrintJobState.Completed;
-        }
-
-        if (details.Any(d =>
-                d.Contains("aborted", StringComparison.OrdinalIgnoreCase) ||
-                d.Contains("error", StringComparison.OrdinalIgnoreCase) ||
-                d.Contains("interrupted", StringComparison.OrdinalIgnoreCase)))
-        {
-            return PrintJobState.Failed;
-        }
-
-        return processingState?.ToLowerInvariant() switch
-        {
-            "completed" => PrintJobState.Completed,
-            "aborted" or "canceled" or "cancelled" => PrintJobState.Failed,
-            "processing" or "pending" or "paused" => PrintJobState.Printing,
-            _ => PrintJobState.Printing,
         };
     }
 

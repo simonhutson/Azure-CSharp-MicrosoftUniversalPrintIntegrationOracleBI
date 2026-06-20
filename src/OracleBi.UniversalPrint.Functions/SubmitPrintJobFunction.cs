@@ -3,24 +3,34 @@ using System.Text.Json;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
+using OracleBi.UniversalPrint.Abstractions;
+using OracleBi.UniversalPrint.Configuration;
 using OracleBi.UniversalPrint.Models;
-using OracleBi.UniversalPrint.Polling;
 
 namespace OracleBi.UniversalPrint.Functions;
 
 /// <summary>
-/// HTTP entry point that renders an Oracle BI report, submits it to Universal Print, and starts
-/// status tracking by enqueuing the first poll message. Returns the correlation id the caller can
-/// use to track the job end-to-end (it flows through telemetry and any DLQ event).
+/// HTTP entry point. Validates the request, enforces the report-path allow-list, then enqueues a
+/// submit message and returns 202 Accepted immediately — the heavy render + Universal Print upload
+/// runs off-thread on the submit queue (see <see cref="RenderAndSubmitFunction"/>). Returns the
+/// correlation id (for end-to-end tracking) and the idempotency key used to de-duplicate retries.
 /// </summary>
 public sealed class SubmitPrintJobFunction
 {
-    private readonly PrintJobService _printJobService;
+    private const string IdempotencyHeader = "Idempotency-Key";
+
+    private readonly IPrintJobQueue _queue;
+    private readonly PrintSecurityOptions _security;
     private readonly ILogger<SubmitPrintJobFunction> _logger;
 
-    public SubmitPrintJobFunction(PrintJobService printJobService, ILogger<SubmitPrintJobFunction> logger)
+    public SubmitPrintJobFunction(
+        IPrintJobQueue queue,
+        IOptions<PrintSecurityOptions> security,
+        ILogger<SubmitPrintJobFunction> logger)
     {
-        _printJobService = printJobService;
+        _queue = queue;
+        _security = security.Value;
         _logger = logger;
     }
 
@@ -36,40 +46,66 @@ public sealed class SubmitPrintJobFunction
         }
         catch (Exception ex) when (ex is JsonException or InvalidOperationException)
         {
-            var malformed = request.CreateResponse(HttpStatusCode.BadRequest);
-            await malformed.WriteStringAsync("Request body is not a valid print job.", cancellationToken);
-            return malformed;
+            return await Text(request, HttpStatusCode.BadRequest, "Request body is not a valid print job.", cancellationToken);
         }
 
         if (reportRequest is null || string.IsNullOrWhiteSpace(reportRequest.ReportPath))
         {
-            var bad = request.CreateResponse(HttpStatusCode.BadRequest);
-            await bad.WriteStringAsync("A reportPath is required.", cancellationToken);
-            return bad;
+            return await Text(request, HttpStatusCode.BadRequest, "A reportPath is required.", cancellationToken);
         }
 
-        PrintJob job;
-        try
+        // Allow-list check up front so disallowed paths are rejected synchronously with 403 rather
+        // than being accepted (202) and only failing later on the queue.
+        if (!_security.IsReportPathAllowed(reportRequest.ReportPath))
         {
-            job = await _printJobService.SubmitAndTrackAsync(reportRequest, cancellationToken);
-        }
-        catch (ReportPathNotAllowedException)
-        {
-            var forbidden = request.CreateResponse(HttpStatusCode.Forbidden);
-            await forbidden.WriteStringAsync("The requested report path is not permitted.", cancellationToken);
-            return forbidden;
+            _logger.LogWarning(
+                "Rejected print request for disallowed report path {ReportPath}.", reportRequest.ReportPath);
+            return await Text(request, HttpStatusCode.Forbidden, "The requested report path is not permitted.", cancellationToken);
         }
 
-        _logger.LogInformation("Accepted print job {CorrelationId}.", job.CorrelationId);
+        var correlationId = Guid.NewGuid().ToString("N");
+        var idempotencyKey = ReadIdempotencyKey(request) ?? Guid.NewGuid().ToString("N");
+
+        await _queue.EnqueueSubmitAsync(new SubmitMessage
+        {
+            CorrelationId = correlationId,
+            IdempotencyKey = idempotencyKey,
+            Request = reportRequest,
+        }, cancellationToken);
+
+        _logger.LogInformation(
+            "Accepted print job {CorrelationId} (idempotency {IdempotencyKey}); queued for submit.",
+            correlationId, idempotencyKey);
 
         var response = request.CreateResponse(HttpStatusCode.Accepted);
         await response.WriteAsJsonAsync(new
         {
-            correlationId = job.CorrelationId,
-            universalPrintJobId = job.UniversalPrintJobId,
-            printerId = job.PrinterId,
-            state = job.State.ToString(),
+            correlationId,
+            idempotencyKey,
+            state = "Accepted",
         }, cancellationToken);
+        return response;
+    }
+
+    private static string? ReadIdempotencyKey(HttpRequestData request)
+    {
+        if (request.Headers.TryGetValues(IdempotencyHeader, out var values))
+        {
+            var key = values.FirstOrDefault();
+            if (!string.IsNullOrWhiteSpace(key))
+            {
+                return key.Trim();
+            }
+        }
+
+        return null;
+    }
+
+    private static async Task<HttpResponseData> Text(
+        HttpRequestData request, HttpStatusCode status, string message, CancellationToken cancellationToken)
+    {
+        var response = request.CreateResponse(status);
+        await response.WriteStringAsync(message, cancellationToken);
         return response;
     }
 }

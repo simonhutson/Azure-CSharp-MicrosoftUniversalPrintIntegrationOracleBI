@@ -8,6 +8,9 @@ namespace OracleBi.UniversalPrint.Abstractions;
 /// </summary>
 public interface IPrintJobQueue
 {
+    /// <summary>Schedules a report to be rendered and submitted to Universal Print.</summary>
+    Task EnqueueSubmitAsync(SubmitMessage message, CancellationToken cancellationToken = default);
+
     /// <summary>Schedules a job to be polled after <paramref name="delay"/>.</summary>
     Task EnqueuePollAsync(PollMessage message, TimeSpan delay, CancellationToken cancellationToken = default);
 

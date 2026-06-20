@@ -2,6 +2,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using OracleBi.UniversalPrint.Abstractions;
 using OracleBi.UniversalPrint.Configuration;
+using OracleBi.UniversalPrint.Idempotency;
 using OracleBi.UniversalPrint.OracleBiIntegration;
 using OracleBi.UniversalPrint.Polling;
 using OracleBi.UniversalPrint.Queueing;
@@ -53,8 +54,10 @@ public static class ServiceCollectionExtensions
 
         services.AddSingleton<IPrintJobQueue, AzureStoragePrintJobQueue>();
         services.AddSingleton<IDeadLetterQueue, AzureStorageDeadLetterQueue>();
+        services.AddSingleton<IIdempotencyStore, BlobIdempotencyStore>();
 
         services.AddSingleton<PollProcessor>();
+        services.AddSingleton<SubmitProcessor>();
         services.AddSingleton<PrintJobService>();
 
         return services;

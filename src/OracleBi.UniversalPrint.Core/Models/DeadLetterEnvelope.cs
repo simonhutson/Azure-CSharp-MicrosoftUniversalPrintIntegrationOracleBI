@@ -14,6 +14,9 @@ public enum DeadLetterReason
     /// <summary>Universal Print reported the job failed permanently.</summary>
     PrintJobFailed,
 
+    /// <summary>A submit message was rejected (e.g. report path not on the allow-list).</summary>
+    SubmitRejected,
+
     /// <summary>Job stayed non-terminal beyond the maximum poll attempts.</summary>
     PollTimeoutExceeded,
 

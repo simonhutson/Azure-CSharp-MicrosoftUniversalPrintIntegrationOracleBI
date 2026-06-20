@@ -18,13 +18,30 @@ public sealed class QueueOptions
     /// <summary>Queue service endpoint, e.g. https://acct.queue.core.windows.net. Used with managed identity.</summary>
     public string? QueueServiceUri { get; set; }
 
+    /// <summary>
+    /// Blob service endpoint, e.g. https://acct.blob.core.windows.net. Used with managed identity
+    /// for the submit-idempotency container. Falls back to <see cref="ConnectionString"/> when null.
+    /// </summary>
+    public string? BlobServiceUri { get; set; }
+
     /// <summary>Name of the queue that holds "poll this job" messages.</summary>
     [Required]
     public string PollQueueName { get; set; } = "print-poll";
 
+    /// <summary>Name of the queue that holds "render + submit this report" messages.</summary>
+    [Required]
+    public string SubmitQueueName { get; set; } = "print-submit";
+
     /// <summary>Name of the dead-letter queue for poison / permanently failed messages.</summary>
     [Required]
     public string DeadLetterQueueName { get; set; } = "print-poll-deadletter";
+
+    /// <summary>
+    /// Blob container used to record submit idempotency claims (one blob per idempotency key),
+    /// so a redelivered submit message cannot create a duplicate Universal Print job.
+    /// </summary>
+    [Required]
+    public string IdempotencyContainerName { get; set; } = "idempotency";
 
     /// <summary>
     /// Number of delivery attempts allowed before a poll message is moved to the dead-letter

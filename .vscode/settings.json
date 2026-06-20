@@ -12,6 +12,10 @@
         "dotnet sln": true,
         "dotnet test": true,
         "dotnet package": true,
-        "ConvertFrom-Json": true
+        "ConvertFrom-Json": true,
+        "dotnet list": true,
+        "dotnet nuget": true,
+        "dotnet restore": true,
+        "New-Item": true
     }
 }

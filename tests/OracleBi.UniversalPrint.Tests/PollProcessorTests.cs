@@ -114,11 +114,13 @@ public sealed class PollProcessorTests
             });
         }
 
-        public Task<PrintJob> SubmitAsync(OracleBiReportRequest request, CancellationToken cancellationToken = default)
+        public Task<PrintJob> SubmitAsync(
+            OracleBiReportRequest request, string correlationId, CancellationToken cancellationToken = default)
             => throw new NotSupportedException();
 
         public Task<PrintJob> SubmitDocumentAsync(
-            OracleBiReportRequest request, OracleBiDocument document, CancellationToken cancellationToken = default)
+            OracleBiReportRequest request, OracleBiDocument document, string correlationId,
+            CancellationToken cancellationToken = default)
             => throw new NotSupportedException();
     }
 }

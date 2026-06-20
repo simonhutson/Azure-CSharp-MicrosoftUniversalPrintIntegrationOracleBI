@@ -38,8 +38,10 @@ param queuePrivateDnsZoneResourceId string = ''
 param vaultPrivateDnsZoneResourceId string = ''
 
 var pollQueueName = 'print-poll'
+var submitQueueName = 'print-submit'
 var deadLetterQueueName = 'print-poll-deadletter'
 var deploymentContainerName = 'app-package'
+var idempotencyContainerName = 'idempotency'
 var keyVaultName = 'kv-${resourceToken}'
 var oracleBiPasswordSecretName = 'oracle-bi-password'
 
@@ -50,6 +52,8 @@ var keyVaultSecretsUser = '4633458b-17de-408a-b874-0445c86b69e6'
 
 // Queue endpoint is derived deterministically so we don't depend on optional service endpoints.
 var queueServiceUri = 'https://st${resourceToken}.queue.${environment().suffixes.storage}/'
+// Blob endpoint for the submit-idempotency container (identity-based, no shared keys).
+var blobServiceUri = 'https://st${resourceToken}.blob.${environment().suffixes.storage}/'
 
 var publicAccess = enableNetworkIsolation ? 'Disabled' : 'Enabled'
 var storageNetworkAcls = enableNetworkIsolation ? { bypass: 'AzureServices', defaultAction: 'Deny' } : null
@@ -157,11 +161,13 @@ module storage 'br/public:avm/res/storage/storage-account:0.32.1' = {
     blobServices: {
       containers: [
         { name: deploymentContainerName }
+        { name: idempotencyContainerName }
       ]
     }
     queueServices: {
       queues: [
         { name: pollQueueName }
+        { name: submitQueueName }
         { name: deadLetterQueueName }
       ]
     }
@@ -238,8 +244,11 @@ module functionApp 'br/public:avm/res/web/site:0.23.1' = {
           // Queue-trigger connection ("QueueStorage") and app queue clients — identity-based.
           QueueStorage__queueServiceUri: queueServiceUri
           Queues__QueueServiceUri: queueServiceUri
+          Queues__BlobServiceUri: blobServiceUri
           Queues__PollQueueName: pollQueueName
+          Queues__SubmitQueueName: submitQueueName
           Queues__DeadLetterQueueName: deadLetterQueueName
+          Queues__IdempotencyContainerName: idempotencyContainerName
           Queues__MaxDeliveryAttempts: '5'
           // Universal Print provider — uses the app's managed identity (no client secret).
           UniversalPrint__TenantId: universalPrintTenantId

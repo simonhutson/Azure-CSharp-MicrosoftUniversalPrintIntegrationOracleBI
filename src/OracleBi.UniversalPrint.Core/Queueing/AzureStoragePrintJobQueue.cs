@@ -20,6 +20,7 @@ namespace OracleBi.UniversalPrint.Queueing;
 public sealed class AzureStoragePrintJobQueue : IPrintJobQueue
 {
     private readonly QueueClient _queue;
+    private readonly QueueClient _submitQueue;
     private readonly QueueOptions _options;
     private readonly ResiliencePipeline _pipeline;
 
@@ -28,7 +29,20 @@ public sealed class AzureStoragePrintJobQueue : IPrintJobQueue
         _options = options.Value;
         _queue = QueueClientFactory.Create(_options, _options.PollQueueName);
         _queue.CreateIfNotExists();
+        _submitQueue = QueueClientFactory.Create(_options, _options.SubmitQueueName);
+        _submitQueue.CreateIfNotExists();
         _pipeline = ResiliencePipelines.CreateOperationPipeline(logger);
+    }
+
+    public async Task EnqueueSubmitAsync(SubmitMessage message, CancellationToken cancellationToken = default)
+    {
+        var json = JsonSerializer.Serialize(message);
+        await _pipeline.ExecuteAsync(
+            async ct => await _submitQueue.SendMessageAsync(
+                json,
+                timeToLive: TimeSpan.FromDays(7),
+                cancellationToken: ct),
+            cancellationToken);
     }
 
     public async Task EnqueuePollAsync(PollMessage message, TimeSpan delay, CancellationToken cancellationToken = default)
