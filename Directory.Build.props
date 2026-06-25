@@ -1,0 +1,30 @@
+<!--
+  Solution-wide MSBuild defaults. Applied to every project automatically (MSBuild walks up the
+  directory tree and imports the nearest Directory.Build.props). Keep per-project .csproj files
+  focused on what is genuinely project-specific.
+-->
+<Project>
+
+  <PropertyGroup>
+    <!-- Language / framework baseline (constitution: .NET 10, nullable + implicit usings). -->
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+
+    <!-- Quality gates: warning-clean builds and the in-box analyzers, enforced everywhere.
+         AnalysisMode=Recommended (latest-recommended) holds all code to the stricter analyzer set;
+         a few advisory rules are scoped/suppressed with rationale (.editorconfig, test .csproj). -->
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <EnableNETAnalyzers>true</EnableNETAnalyzers>
+    <AnalysisLevel>latest-recommended</AnalysisLevel>
+    <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+
+    <!-- Reproducible builds. ContinuousIntegrationBuild is set to true by CI (see ci.yml). -->
+    <Deterministic>true</Deterministic>
+
+    <!-- Central Package Management: versions live in Directory.Packages.props. -->
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+  </PropertyGroup>
+
+</Project>

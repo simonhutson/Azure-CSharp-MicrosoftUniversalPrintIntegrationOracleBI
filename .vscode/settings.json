@@ -16,6 +16,8 @@
         "dotnet list": true,
         "dotnet nuget": true,
         "dotnet restore": true,
-        "New-Item": true
+        "New-Item": true,
+        "Group-Object": true,
+        "Tee-Object": true
     }
 }

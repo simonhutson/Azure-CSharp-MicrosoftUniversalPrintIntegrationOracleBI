@@ -16,14 +16,13 @@ namespace OracleBi.UniversalPrint.Functions;
 /// runs off-thread on the submit queue (see <see cref="RenderAndSubmitFunction"/>). Returns the
 /// correlation id (for end-to-end tracking) and the idempotency key used to de-duplicate retries.
 /// </summary>
-public sealed class SubmitPrintJobFunction
+public sealed partial class SubmitPrintJobFunction
 {
     private const string IdempotencyHeader = "Idempotency-Key";
 
     private readonly IPrintJobQueue _queue;
     private readonly PrintSecurityOptions _security;
     private readonly ILogger<SubmitPrintJobFunction> _logger;
-
     public SubmitPrintJobFunction(
         IPrintJobQueue queue,
         IOptions<PrintSecurityOptions> security,
@@ -58,8 +57,7 @@ public sealed class SubmitPrintJobFunction
         // than being accepted (202) and only failing later on the queue.
         if (!_security.IsReportPathAllowed(reportRequest.ReportPath))
         {
-            _logger.LogWarning(
-                "Rejected print request for disallowed report path {ReportPath}.", reportRequest.ReportPath);
+            LogRejectedReportPath(reportRequest.ReportPath);
             return await Text(request, HttpStatusCode.Forbidden, "The requested report path is not permitted.", cancellationToken);
         }
 
@@ -73,9 +71,7 @@ public sealed class SubmitPrintJobFunction
             Request = reportRequest,
         }, cancellationToken);
 
-        _logger.LogInformation(
-            "Accepted print job {CorrelationId} (idempotency {IdempotencyKey}); queued for submit.",
-            correlationId, idempotencyKey);
+        LogAccepted(correlationId, idempotencyKey);
 
         var response = request.CreateResponse(HttpStatusCode.Accepted);
         await response.WriteAsJsonAsync(new
@@ -86,6 +82,14 @@ public sealed class SubmitPrintJobFunction
         }, cancellationToken);
         return response;
     }
+
+    [LoggerMessage(Level = LogLevel.Warning,
+        Message = "Rejected print request for disallowed report path {ReportPath}.")]
+    private partial void LogRejectedReportPath(string reportPath);
+
+    [LoggerMessage(Level = LogLevel.Information,
+        Message = "Accepted print job {CorrelationId} (idempotency {IdempotencyKey}); queued for submit.")]
+    private partial void LogAccepted(string correlationId, string idempotencyKey);
 
     private static string? ReadIdempotencyKey(HttpRequestData request)
     {

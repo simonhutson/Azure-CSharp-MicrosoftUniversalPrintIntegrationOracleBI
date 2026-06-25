@@ -19,7 +19,7 @@ namespace OracleBi.UniversalPrint.Functions;
 ///   - Transient  → throw, so the Functions runtime retries; after host.json maxDequeueCount it
 ///                  is moved to the poison queue (belt-and-braces alongside our explicit DLQ).
 /// </summary>
-public sealed class PollPrintJobFunction
+public sealed partial class PollPrintJobFunction
 {
     private readonly PollProcessor _processor;
     private readonly IPrintJobQueue _queue;
@@ -59,7 +59,7 @@ public sealed class PollPrintJobFunction
         {
             // Poison message: do not throw (that would just retry the same bad payload). Capture
             // it in the dead-letter queue with full context for inspection / replay.
-            _logger.LogError(ex, "Failed to deserialize poll message; dead-lettering.");
+            LogDeserializeFailed(ex);
             await _deadLetterQueue.DeadLetterAsync(new DeadLetterEnvelope
             {
                 CorrelationId = "unknown",
@@ -88,6 +88,9 @@ public sealed class PollPrintJobFunction
                 break;
         }
     }
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Failed to deserialize poll message; dead-lettering.")]
+    private partial void LogDeserializeFailed(Exception ex);
 
     private static long ReadDequeueCount(FunctionContext context)
     {

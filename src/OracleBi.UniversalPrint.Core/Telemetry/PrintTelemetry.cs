@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using System.Diagnostics.Metrics;
 using OracleBi.UniversalPrint.Models;
 
@@ -51,6 +52,8 @@ public sealed class PrintTelemetry : IDisposable
     }
 
     /// <summary>Starts a trace activity, stamping the correlation id so all spans/logs join up.</summary>
+    [SuppressMessage("Performance", "CA1822:Mark members as static",
+        Justification = "Part of the PrintTelemetry instance surface; kept as an instance method by design.")]
     public Activity? StartActivity(string name, string correlationId, ActivityKind kind = ActivityKind.Internal)
     {
         var activity = ActivitySource.StartActivity(name, kind);

@@ -17,7 +17,7 @@ namespace OracleBi.UniversalPrint.OracleBiIntegration;
 /// Calls the Oracle BI Publisher REST API (v1 "reports/{path}/run") to render a report and
 /// returns its bytes. Wrapped with the shared retry pipeline + tracing.
 /// </summary>
-public sealed class OracleBiClient : IOracleBiClient
+public sealed partial class OracleBiClient : IOracleBiClient
 {
     private readonly HttpClient _httpClient;
     private readonly OracleBiOptions _options;
@@ -92,15 +92,12 @@ public sealed class OracleBiClient : IOracleBiClient
         if (!response.IsSuccessStatusCode)
         {
             // Do not log the response body at Error level: it may contain report data / PII.
-            _logger.LogError(
-                "Oracle BI render failed for {ReportPath}. Status={Status}",
-                request.ReportPath, (int)response.StatusCode);
+            LogRenderFailed(request.ReportPath, (int)response.StatusCode);
             if (_logger.IsEnabled(LogLevel.Debug))
             {
                 var body = await SafeReadAsync(response, cancellationToken);
-                _logger.LogDebug(
-                    "Oracle BI failure detail for {ReportPath}: {Body}",
-                    request.ReportPath, Truncate(body, 512));
+                var detail = Truncate(body, 512);
+                LogRenderFailureDetail(request.ReportPath, detail);
             }
             throw new OracleBiRenderException(
                 $"Oracle BI render failed with status {(int)response.StatusCode} for '{request.ReportPath}'.");
@@ -111,12 +108,22 @@ public sealed class OracleBiClient : IOracleBiClient
         var fileName = $"{SanitizeFileName(request.DocumentName)}.{MapExtension(request.OutputFormat)}";
 
         activity?.SetTag("oraclebi.bytes", bytes.LongLength);
-        _logger.LogInformation(
-            "Rendered Oracle BI report {ReportPath} ({Bytes} bytes, {ContentType}).",
-            request.ReportPath, bytes.LongLength, contentType);
+        LogRendered(request.ReportPath, bytes.LongLength, contentType);
 
         return new OracleBiDocument { Content = bytes, ContentType = contentType, FileName = fileName };
     }
+
+    [LoggerMessage(Level = LogLevel.Error,
+        Message = "Oracle BI render failed for {ReportPath}. Status={Status}")]
+    private partial void LogRenderFailed(string reportPath, int status);
+
+    [LoggerMessage(Level = LogLevel.Debug,
+        Message = "Oracle BI failure detail for {ReportPath}: {Body}")]
+    private partial void LogRenderFailureDetail(string reportPath, string body);
+
+    [LoggerMessage(Level = LogLevel.Information,
+        Message = "Rendered Oracle BI report {ReportPath} ({Bytes} bytes, {ContentType}).")]
+    private partial void LogRendered(string reportPath, long bytes, string contentType);
 
     private static async Task<string> SafeReadAsync(HttpResponseMessage response, CancellationToken ct)
     {

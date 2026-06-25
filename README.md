@@ -6,9 +6,53 @@ production-grade **retry** and **telemetry** practices, **status polling** (both
 background worker and an Azure Functions queue trigger), **Azure Queue** integration, and a
 **dead-letter queue (DLQ)** with monitoring, alerting and job correlation.
 
+> **In plain terms:** this service automatically prints business reports (for example, finance
+> invoices) from Oracle's reporting system to any printer registered with Microsoft Universal Print —
+> reliably, securely, and with full tracking so nothing silently goes missing.
+>
+> **Use it when** you need finance or operations reports printed on a schedule or on demand, with an
+> audit trail and an alert if a print ever fails.
+
+## Who should read what
+
+| Section | Audience |
+| --- | --- |
+| [Architecture](#architecture), [How a print job flows](#how-a-print-job-flows), [Glossary](#glossary) | Everyone (overview) |
+| [Status polling](#status-polling-design), [Error handling & DLQ](#error-handling--dead-letter-queue-logic), [Monitoring & alerting](#monitoring--alerting-on-dlq-events) | Operations / support |
+| [Retry & telemetry](#retry--telemetry-best-practices), [Setup](#setup), [Hosting & deployment](#hosting--deployment) | Engineers |
+
+## Glossary
+
+<details>
+<summary>Plain-language definitions of the key terms used below</summary>
+
+- **Oracle BI Publisher** — Oracle's reporting tool that turns data into formatted documents (e.g. a PDF invoice).
+- **Microsoft Universal Print** — Microsoft's cloud printing service; printers are registered once and shared centrally.
+- **Microsoft Graph** — the Microsoft 365 web API this service calls to create and track print jobs.
+- **Provider** — the custom code (this project) that connects Oracle reports to Universal Print.
+- **Queue** — a waiting line of work items; jobs are processed in the background rather than making the caller wait.
+- **Dead-letter queue (DLQ)** — a separate "problem" queue where permanently failed jobs are parked for review instead of being lost.
+- **Correlation id** — a unique tracking number stamped on a job so its entire history can be looked up later.
+- **Managed identity** — a password-free way for the app to prove who it is to Azure, so no secrets are stored.
+- **Telemetry** — the metrics and traces the app emits so you can see what it's doing and get alerts.
+- **Azure Functions** — Microsoft's "serverless" platform that runs small pieces of code on demand without managing servers.
+
+</details>
+
 ---
 
 ## Architecture
+
+### How a print job flows
+
+1. A request comes in (HTTP) asking to print a report.
+2. The report is fetched (rendered) from Oracle BI Publisher.
+3. It is sent to the chosen Universal Print printer via Microsoft Graph.
+4. The system watches the job until it finishes, retrying gently while it is still printing.
+5. If anything fails permanently, the job is parked in the dead-letter queue and an alert is raised —
+   always tagged with a tracking id so the whole story can be found later.
+
+The diagram below shows the same flow in technical detail.
 
 ```mermaid
 flowchart LR
@@ -60,7 +104,25 @@ Key types:
 
 ---
 
+## Development process
+
+This project uses [Spec-Driven Development](https://github.com/github/spec-kit). The intent, design,
+and work breakdown live as durable artifacts:
+
+- [.specify/memory/constitution.md](.specify/memory/constitution.md) — binding engineering principles.
+- [specs/](specs/README.md) — the feature spec, plan, tasks, and per-component implementation
+  contracts (`specs/001-oraclebi-universalprint/`).
+
+For new features or modernization, add `specs/NNN-<slug>/` via `/speckit.specify` rather than editing
+code directly. See [specs/README.md](specs/README.md).
+
+---
+
 ## Retry & telemetry best practices
+
+> 💡 **Why it matters:** cloud services occasionally hiccup. Smart retries mean a momentary glitch
+> doesn't fail a print, while telemetry means you can always see what happened and get alerted when
+> something is genuinely wrong.
 
 **Retry** (in [ResiliencePipelines](src/OracleBi.UniversalPrint.Core/Resilience/ResiliencePipelines.cs)):
 
@@ -76,6 +138,8 @@ Key types:
 - One `Meter` (`OracleBi.UniversalPrint`) exposing the metrics below.
 - Exported to Application Insights/Azure Monitor via OpenTelemetry (see `Program.cs`).
 
+The app publishes these measurements (its "vital signs") so dashboards and alerts can be built on them:
+
 | Metric | Type | Key dimensions |
 | --- | --- | --- |
 | `print.jobs.submitted` | counter | `printer.id` |
@@ -89,6 +153,9 @@ Key types:
 ---
 
 ## Status polling design
+
+> 💡 **Why it matters:** printing isn't instant. The service keeps checking each job until it's truly
+> done, so a job is never assumed finished — and one that gets stuck is caught rather than forgotten.
 
 A poll message (`{ correlationId, printerId, universalPrintJobId, pollAttempts }`) drives one status
 check. The shared [PollProcessor](src/OracleBi.UniversalPrint.Core/Polling/PollProcessor.cs) decides:
@@ -109,6 +176,9 @@ Two interchangeable hosts use the same processor:
 
 ## Error handling & dead-letter queue logic
 
+> 💡 **Why it matters:** failed prints never disappear silently. Every permanent failure is parked
+> for review and someone is alerted, so problems are visible and fixable instead of lost.
+
 - Transient errors are retried in-pipeline; if they persist the message is **abandoned** back to the
   queue, its **dequeue count** climbs, and poison protection eventually dead-letters it.
 - Terminal failures are written to the DLQ as a [DeadLetterEnvelope](src/OracleBi.UniversalPrint.Core/Models/DeadLetterEnvelope.cs)
@@ -122,10 +192,13 @@ Two interchangeable hosts use the same processor:
 
 ## Monitoring & alerting on DLQ events
 
+> 💡 **Why it matters:** this is how the on-call team finds out a print failed — fast threshold
+> alerts for "something's wrong now", plus searchable history for "what exactly happened".
+
 You have two complementary signals: the **metric** `print.deadletter.count` and the **log** event
 `DEAD-LETTER print job …`. Use metrics for fast threshold alerts and logs for rich, correlated queries.
 
-### Log-based alert (Application Insights, KQL)
+### Log-based alert (Application Insights, KQL — Kusto Query Language)
 
 Any DLQ event in the last 5 minutes:
 
@@ -289,6 +362,9 @@ The response returns the `correlationId` you can use across all the queries abov
 
 ## Hosting & deployment
 
+> 💡 **Why it matters:** this runs on "serverless" infrastructure that scales up under load and costs
+> little when idle, and it deploys with a single command — no servers to patch or babysit.
+
 ### Decision: Azure Functions on the Flex Consumption plan
 
 This solution deploys to **Azure Functions, Flex Consumption plan**. The decision:
@@ -297,8 +373,8 @@ This solution deploys to **Azure Functions, Flex Consumption plan**. The decisio
   public internet, and the app makes **only REST calls** (no native libraries, no custom OS deps).
   That removes the two main reasons to containerise: private VNet access and custom images.
 - **Serverless fits the workload** — queue-triggered polling plus an HTTP submit endpoint benefit
-  from **scale-to-zero**, per-instance concurrency, and event-driven (KEDA-style) scaling on queue
-  depth, with no image lifecycle or base-image patching to own.
+  from **scale-to-zero**, per-instance concurrency, and event-driven (KEDA-style — Kubernetes
+  Event-driven Autoscaling) scaling on queue depth, with no image lifecycle or base-image patching to own.
 - **Flex Consumption over classic Consumption** — Flex adds identity-based connections, larger
   instance memory, better cold-start behaviour, and VNet support *if* a dependency ever goes
   private — so we are not boxed in.
@@ -315,7 +391,8 @@ or this is co-located with other microservices in a single Container Apps enviro
 ### What the infra provisions
 
 The [infra](infra) folder is an `azd`-ready Bicep deployment composed of
-**[Azure Verified Modules](https://aka.ms/avm)** (AVM) wherever a module exists:
+**[Azure Verified Modules](https://aka.ms/avm)** (AVM — Microsoft's reviewed, reusable infrastructure
+building blocks) wherever a module exists:
 
 | File | Provisions | AVM modules |
 | --- | --- | --- |
@@ -343,13 +420,15 @@ Function app's **system-assigned managed identity** is granted:
 
 ### Security hardening built in
 
+Each row is a potential risk and the safeguard already in place for it:
+
 | Gap | Mitigation |
 | --- | --- |
 | Oracle BI password in plaintext | Stored in **Key Vault**; the app reads it via a Key Vault reference using its identity |
 | Plaintext transport for Basic auth | `OracleBi:BaseUrl` must be **HTTPS** (`OracleBi:AllowInsecureTransport=false` by default) |
 | Arbitrary report exfiltration | **Report-path allow-list** (`PrintSecurity:AllowedReportPathPrefixes`); disallowed paths return `403` |
 | Sensitive data in logs / DLQ / webhook | BI & Graph response **bodies are no longer logged at Error or embedded in exceptions/DLQ**; the DLQ webhook card omits error detail (correlate in App Insights instead) |
-| Shared-secret publishing surfaces | **SCM/FTP basic auth disabled** on the Function app |
+| Shared-secret publishing surfaces | **SCM/FTP (the app's deployment endpoints) basic auth disabled** on the Function app |
 | Public storage/Key Vault data plane | **Opt-in network isolation** (`enableNetworkIsolation=true`): private endpoints + private DNS, `publicNetworkAccess=Disabled`, and Flex VNet integration (subnet delegated to `Microsoft.App/environments`) |
 
 > **Network isolation caveat:** with `enableNetworkIsolation=true`, storage public access is
@@ -359,7 +438,7 @@ Function app's **system-assigned managed identity** is granted:
 > restrict the target printer via Universal Print printer-share membership.
 
 > **Stronger endpoint auth:** the HTTP submit endpoint uses a function key. For production, front
-> it with **Entra ID (Easy Auth)** or APIM JWT validation and treat the key as a fallback only.
+> it with **Entra ID (Easy Auth)** or APIM (Azure API Management) JWT validation and treat the key as a fallback only.
 
 ### Deploy with `azd`
 

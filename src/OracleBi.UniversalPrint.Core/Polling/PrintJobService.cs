@@ -10,7 +10,7 @@ namespace OracleBi.UniversalPrint.Polling;
 /// Application entry point: submits an Oracle BI report to Universal Print and schedules the
 /// first status poll on the queue. Callers (APIs, jobs, the submit Azure Function) use this.
 /// </summary>
-public sealed class PrintJobService
+public sealed partial class PrintJobService
 {
     private readonly IUniversalPrintProvider _provider;
     private readonly IPrintJobQueue _queue;
@@ -55,8 +55,7 @@ public sealed class PrintJobService
         // Defence in depth: only allow-listed report paths may be printed.
         if (!_security.IsReportPathAllowed(request.ReportPath))
         {
-            _logger.LogWarning(
-                "Rejected print request for disallowed report path {ReportPath}.", request.ReportPath);
+            LogRejectedReportPath(request.ReportPath);
             throw new ReportPathNotAllowedException(request.ReportPath);
         }
 
@@ -89,10 +88,16 @@ public sealed class PrintJobService
         };
 
         await _queue.EnqueuePollAsync(poll, _polling.InitialRepollDelay, cancellationToken);
-        _logger.LogInformation(
-            "Tracking print job {CorrelationId}; first poll scheduled in {Delay}.",
-            correlationId, _polling.InitialRepollDelay);
+        LogTrackingScheduled(correlationId, _polling.InitialRepollDelay);
     }
+
+    [LoggerMessage(Level = LogLevel.Warning,
+        Message = "Rejected print request for disallowed report path {ReportPath}.")]
+    private partial void LogRejectedReportPath(string reportPath);
+
+    [LoggerMessage(Level = LogLevel.Information,
+        Message = "Tracking print job {CorrelationId}; first poll scheduled in {Delay}.")]
+    private partial void LogTrackingScheduled(string correlationId, TimeSpan delay);
 }
 
 /// <summary>Raised when a caller requests a report path that is not on the allow-list.</summary>

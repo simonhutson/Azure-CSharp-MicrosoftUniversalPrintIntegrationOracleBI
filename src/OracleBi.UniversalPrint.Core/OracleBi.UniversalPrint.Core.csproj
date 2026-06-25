@@ -1,11 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>net10.0</TargetFramework>
-    <ImplicitUsings>enable</ImplicitUsings>
-    <Nullable>enable</Nullable>
-    <LangVersion>latest</LangVersion>
-    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <!-- Framework/quality defaults come from Directory.Build.props. -->
     <RootNamespace>OracleBi.UniversalPrint</RootNamespace>
   </PropertyGroup>
 
@@ -16,27 +12,27 @@
 
   <ItemGroup>
     <!-- Identity / auth for Microsoft Graph (Universal Print) -->
-    <PackageReference Include="Azure.Identity" Version="1.21.0" />
+    <PackageReference Include="Azure.Identity" />
 
     <!-- Azure Storage Queues for poll scheduling + dead-letter queue -->
-    <PackageReference Include="Azure.Storage.Queues" Version="12.27.0" />
+    <PackageReference Include="Azure.Storage.Queues" />
 
     <!-- Azure Storage Blobs for submit idempotency claims -->
-    <PackageReference Include="Azure.Storage.Blobs" Version="12.29.0" />
+    <PackageReference Include="Azure.Storage.Blobs" />
 
     <!-- Resilience (retry / circuit breaker / timeout) -->
-    <PackageReference Include="Polly.Core" Version="8.5.0" />
+    <PackageReference Include="Polly.Core" />
 
     <!-- Hosting / DI / options / background services -->
-    <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" Version="10.0.3" />
-    <PackageReference Include="Microsoft.Extensions.Http" Version="10.0.3" />
-    <PackageReference Include="Microsoft.Extensions.Options.ConfigurationExtensions" Version="10.0.3" />
-    <PackageReference Include="Microsoft.Extensions.Options.DataAnnotations" Version="10.0.3" />
+    <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.Http" />
+    <PackageReference Include="Microsoft.Extensions.Options.ConfigurationExtensions" />
+    <PackageReference Include="Microsoft.Extensions.Options.DataAnnotations" />
 
     <!-- Telemetry: distributed tracing + metrics via OpenTelemetry, exported to App Insights -->
-    <PackageReference Include="Azure.Monitor.OpenTelemetry.Exporter" Version="1.8.1" />
-    <PackageReference Include="OpenTelemetry.Extensions.Hosting" Version="1.16.0" />
-    <PackageReference Include="OpenTelemetry.Instrumentation.Http" Version="1.15.1" />
+    <PackageReference Include="Azure.Monitor.OpenTelemetry.Exporter" />
+    <PackageReference Include="OpenTelemetry.Extensions.Hosting" />
+    <PackageReference Include="OpenTelemetry.Instrumentation.Http" />
   </ItemGroup>
 
 </Project>

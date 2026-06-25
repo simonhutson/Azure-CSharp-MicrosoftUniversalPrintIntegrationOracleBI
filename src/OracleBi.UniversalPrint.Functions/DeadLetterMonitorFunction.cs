@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Net.Http.Json;
 using System.Text.Json;
 using Microsoft.Azure.Functions.Worker;
@@ -16,7 +17,7 @@ namespace OracleBi.UniversalPrint.Functions;
 /// The envelope carries the print job <see cref="DeadLetterEnvelope.CorrelationId"/>, so the
 /// notification links straight back to the originating job in Application Insights.
 /// </summary>
-public sealed class DeadLetterMonitorFunction
+public sealed partial class DeadLetterMonitorFunction
 {
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly IConfiguration _configuration;
@@ -44,7 +45,7 @@ public sealed class DeadLetterMonitorFunction
         }
         catch (JsonException ex)
         {
-            _logger.LogError(ex, "Dead-letter monitor could not parse envelope; leaving message for inspection.");
+            LogParseFailed(ex);
             return;
         }
 
@@ -53,14 +54,12 @@ public sealed class DeadLetterMonitorFunction
             return;
         }
 
-        _logger.LogCritical(
-            "ALERT: print job dead-lettered. CorrelationId={CorrelationId} Reason={Reason} Printer={Printer}",
-            envelope.CorrelationId, envelope.ReasonCode, envelope.PrinterId);
+        LogAlert(envelope.CorrelationId, envelope.ReasonCode, envelope.PrinterId);
 
         var webhookUrl = _configuration["Notifications:WebhookUrl"];
         if (string.IsNullOrWhiteSpace(webhookUrl))
         {
-            _logger.LogInformation("No Notifications:WebhookUrl configured; skipping outbound notification.");
+            LogNoWebhook();
             return;
         }
 
@@ -76,6 +75,18 @@ public sealed class DeadLetterMonitorFunction
                 $"DLQ notification webhook failed: {(int)response.StatusCode} {body}");
         }
     }
+
+    [LoggerMessage(Level = LogLevel.Error,
+        Message = "Dead-letter monitor could not parse envelope; leaving message for inspection.")]
+    private partial void LogParseFailed(Exception ex);
+
+    [LoggerMessage(Level = LogLevel.Critical,
+        Message = "ALERT: print job dead-lettered. CorrelationId={CorrelationId} Reason={Reason} Printer={Printer}")]
+    private partial void LogAlert(string correlationId, string reason, string? printer);
+
+    [LoggerMessage(Level = LogLevel.Information,
+        Message = "No Notifications:WebhookUrl configured; skipping outbound notification.")]
+    private partial void LogNoWebhook();
 
     private static object BuildAdaptiveCard(DeadLetterEnvelope e) => new
     {
@@ -99,8 +110,8 @@ public sealed class DeadLetterMonitorFunction
                                 new { title = "Reason", value = e.ReasonCode },
                                 new { title = "Printer", value = e.PrinterId ?? "unknown" },
                                 new { title = "UP Job Id", value = e.UniversalPrintJobId ?? "n/a" },
-                                new { title = "Delivery attempts", value = e.DeliveryAttempts.ToString() },
-                                new { title = "When (UTC)", value = e.DeadLetteredAt.ToString("u") },
+                                new { title = "Delivery attempts", value = e.DeliveryAttempts.ToString(CultureInfo.InvariantCulture) },
+                                new { title = "When (UTC)", value = e.DeadLetteredAt.ToString("u", CultureInfo.InvariantCulture) },
                             }
                         },
                         // Error detail is intentionally NOT included: it can carry sensitive content.

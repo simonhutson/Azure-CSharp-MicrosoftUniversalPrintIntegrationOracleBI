@@ -15,7 +15,7 @@ namespace OracleBi.UniversalPrint.Polling;
 /// process (Worker Service, App Service, container). The Azure Functions queue trigger is an
 /// alternative host for the same <see cref="PollProcessor"/> logic.
 /// </summary>
-public sealed class PrintJobPollingWorker : BackgroundService
+public sealed partial class PrintJobPollingWorker : BackgroundService
 {
     private readonly IPrintJobQueue _queue;
     private readonly IDeadLetterQueue _deadLetterQueue;
@@ -39,9 +39,7 @@ public sealed class PrintJobPollingWorker : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        _logger.LogInformation(
-            "Print job polling worker started (parallelism={Parallelism}, interval={Interval}).",
-            _options.MaxDegreeOfParallelism, _options.DequeueInterval);
+        LogWorkerStarted(_options.MaxDegreeOfParallelism, _options.DequeueInterval);
 
         while (!stoppingToken.IsCancellationRequested)
         {
@@ -63,12 +61,12 @@ public sealed class PrintJobPollingWorker : BackgroundService
             catch (Exception ex)
             {
                 // Never let the loop die; back off briefly and continue.
-                _logger.LogError(ex, "Polling loop iteration failed; backing off.");
+                LogLoopIterationFailed(ex);
                 await Task.Delay(_options.DequeueInterval, stoppingToken);
             }
         }
 
-        _logger.LogInformation("Print job polling worker stopped.");
+        LogWorkerStopped();
     }
 
     private async Task ProcessBatchAsync(IReadOnlyList<QueuedPollMessage> messages, CancellationToken ct)
@@ -137,12 +135,26 @@ public sealed class PrintJobPollingWorker : BackgroundService
         {
             // Transient/unexpected failure: make the message visible again after a short back-off.
             // Its dequeue count climbs, so poison protection eventually dead-letters it.
-            _logger.LogWarning(ex,
-                "Processing poll message {CorrelationId} failed; abandoning for retry.",
-                message.Body.CorrelationId);
+            LogAbandoning(ex, message.Body.CorrelationId);
             await _queue.AbandonAsync(message, _options.InitialRepollDelay, ct);
         }
     }
+
+    [LoggerMessage(Level = LogLevel.Information,
+        Message = "Print job polling worker started (parallelism={Parallelism}, interval={Interval}).")]
+    private partial void LogWorkerStarted(int parallelism, TimeSpan interval);
+
+    [LoggerMessage(Level = LogLevel.Error,
+        Message = "Polling loop iteration failed; backing off.")]
+    private partial void LogLoopIterationFailed(Exception ex);
+
+    [LoggerMessage(Level = LogLevel.Information,
+        Message = "Print job polling worker stopped.")]
+    private partial void LogWorkerStopped();
+
+    [LoggerMessage(Level = LogLevel.Warning,
+        Message = "Processing poll message {CorrelationId} failed; abandoning for retry.")]
+    private partial void LogAbandoning(Exception ex, string correlationId);
 
     private static string Truncate(string value, int max) =>
         value.Length <= max ? value : value[..max];

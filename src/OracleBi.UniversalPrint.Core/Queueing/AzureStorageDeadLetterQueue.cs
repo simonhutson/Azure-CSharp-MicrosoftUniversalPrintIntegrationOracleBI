@@ -15,7 +15,7 @@ namespace OracleBi.UniversalPrint.Queueing;
 /// Azure Storage Queue dead-letter queue. Writes a <see cref="DeadLetterEnvelope"/> as JSON and
 /// emits a structured log + metric so the event can be alerted on and correlated to its job.
 /// </summary>
-public sealed class AzureStorageDeadLetterQueue : IDeadLetterQueue
+public sealed partial class AzureStorageDeadLetterQueue : IDeadLetterQueue
 {
     private readonly QueueClient _queue;
     private readonly ILogger<AzureStorageDeadLetterQueue> _logger;
@@ -47,10 +47,7 @@ public sealed class AzureStorageDeadLetterQueue : IDeadLetterQueue
 
         // Structured log: every field becomes a queryable customDimension in Application Insights,
         // which is what lets you correlate a DLQ event back to the originating print job.
-        _logger.LogError(
-            "DEAD-LETTER print job. CorrelationId={CorrelationId} Reason={Reason} PrinterId={PrinterId} " +
-            "UniversalPrintJobId={UniversalPrintJobId} DeliveryAttempts={DeliveryAttempts} " +
-            "ExceptionType={ExceptionType} Detail={Detail}",
+        LogDeadLetter(
             envelope.CorrelationId,
             envelope.ReasonCode,
             envelope.PrinterId,
@@ -59,4 +56,12 @@ public sealed class AzureStorageDeadLetterQueue : IDeadLetterQueue
             envelope.ExceptionType,
             envelope.ErrorDetail);
     }
+
+    [LoggerMessage(Level = LogLevel.Error,
+        Message = "DEAD-LETTER print job. CorrelationId={CorrelationId} Reason={Reason} PrinterId={PrinterId} " +
+                  "UniversalPrintJobId={UniversalPrintJobId} DeliveryAttempts={DeliveryAttempts} " +
+                  "ExceptionType={ExceptionType} Detail={Detail}")]
+    private partial void LogDeadLetter(
+        string correlationId, string reason, string? printerId, string? universalPrintJobId,
+        int deliveryAttempts, string? exceptionType, string? detail);
 }

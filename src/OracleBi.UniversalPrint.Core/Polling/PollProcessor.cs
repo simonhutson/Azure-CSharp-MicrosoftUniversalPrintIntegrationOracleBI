@@ -14,7 +14,7 @@ namespace OracleBi.UniversalPrint.Polling;
 /// Shared by the in-process <see cref="PrintJobPollingWorker"/> and the Azure Functions queue
 /// trigger so the retry / dead-letter rules live in exactly one place.
 /// </summary>
-public sealed class PollProcessor
+public sealed partial class PollProcessor
 {
     private readonly IUniversalPrintProvider _provider;
     private readonly PollingOptions _polling;
@@ -52,9 +52,7 @@ public sealed class PollProcessor
         // Poison protection: too many raw delivery attempts -> dead-letter.
         if (deliveryAttempt > _queue.MaxDeliveryAttempts)
         {
-            _logger.LogWarning(
-                "Poll message for {CorrelationId} exceeded {Max} delivery attempts; dead-lettering.",
-                message.CorrelationId, _queue.MaxDeliveryAttempts);
+            LogMaxDeliveryExceeded(message.CorrelationId, _queue.MaxDeliveryAttempts);
             return PollProcessingResult.Dead(BuildEnvelope(
                 message, DeadLetterReason.MaxDeliveryAttemptsExceeded, deliveryAttempt,
                 exceptionType: null, detail: $"DequeueCount={deliveryAttempt}"));
@@ -75,9 +73,7 @@ public sealed class PollProcessor
         {
             // The provider already retried transient errors. Re-throw so the host can abandon the
             // message (its dequeue count climbs and poison protection eventually dead-letters it).
-            _logger.LogWarning(ex,
-                "Status poll threw for {CorrelationId}; will be retried via the queue.",
-                message.CorrelationId);
+            LogStatusPollThrew(ex, message.CorrelationId);
             throw;
         }
         finally
@@ -92,16 +88,12 @@ public sealed class PollProcessor
         {
             case PrintJobState.Completed:
                 _telemetry.JobCompleted(message.PrinterId, DateTimeOffset.UtcNow - message.ScheduledFor);
-                _logger.LogInformation(
-                    "Print job {CorrelationId} completed (UP job {JobId}).",
-                    message.CorrelationId, message.UniversalPrintJobId);
+                LogJobCompleted(message.CorrelationId, message.UniversalPrintJobId);
                 return PollProcessingResult.Done();
 
             case PrintJobState.Failed or PrintJobState.Abandoned:
                 _telemetry.JobFailed(message.PrinterId, status.Description ?? "printJobFailed");
-                _logger.LogError(
-                    "Print job {CorrelationId} failed: {Description} [{Details}]",
-                    message.CorrelationId, status.Description, string.Join(",", status.Details));
+                LogJobFailed(message.CorrelationId, status.Description, string.Join(",", status.Details));
                 return PollProcessingResult.Dead(BuildEnvelope(
                     message, DeadLetterReason.PrintJobFailed, deliveryAttempt,
                     exceptionType: null,
@@ -112,9 +104,7 @@ public sealed class PollProcessor
                 var nextAttempt = message.PollAttempts + 1;
                 if (nextAttempt >= _polling.MaxPollAttempts)
                 {
-                    _logger.LogWarning(
-                        "Print job {CorrelationId} still '{State}' after {Attempts} polls; dead-lettering.",
-                        message.CorrelationId, status.RawProcessingState, nextAttempt);
+                    LogPollTimeout(message.CorrelationId, status.RawProcessingState, nextAttempt);
                     return PollProcessingResult.Dead(BuildEnvelope(
                         message, DeadLetterReason.PollTimeoutExceeded, deliveryAttempt,
                         exceptionType: null,
@@ -130,9 +120,7 @@ public sealed class PollProcessor
                     PollAttempts = nextAttempt,
                     ScheduledFor = DateTimeOffset.UtcNow + delay,
                 };
-                _logger.LogDebug(
-                    "Print job {CorrelationId} still printing; re-polling in {Delay} (attempt {Attempt}).",
-                    message.CorrelationId, delay, nextAttempt);
+                LogRePolling(message.CorrelationId, delay, nextAttempt);
                 return PollProcessingResult.Later(next, delay);
         }
     }
@@ -158,4 +146,28 @@ public sealed class PollProcessor
             ExceptionType = exceptionType,
             ErrorDetail = detail,
         };
+
+    [LoggerMessage(Level = LogLevel.Warning,
+        Message = "Poll message for {CorrelationId} exceeded {Max} delivery attempts; dead-lettering.")]
+    private partial void LogMaxDeliveryExceeded(string correlationId, int max);
+
+    [LoggerMessage(Level = LogLevel.Warning,
+        Message = "Status poll threw for {CorrelationId}; will be retried via the queue.")]
+    private partial void LogStatusPollThrew(Exception ex, string correlationId);
+
+    [LoggerMessage(Level = LogLevel.Information,
+        Message = "Print job {CorrelationId} completed (UP job {JobId}).")]
+    private partial void LogJobCompleted(string correlationId, string jobId);
+
+    [LoggerMessage(Level = LogLevel.Error,
+        Message = "Print job {CorrelationId} failed: {Description} [{Details}]")]
+    private partial void LogJobFailed(string correlationId, string? description, string details);
+
+    [LoggerMessage(Level = LogLevel.Warning,
+        Message = "Print job {CorrelationId} still '{State}' after {Attempts} polls; dead-lettering.")]
+    private partial void LogPollTimeout(string correlationId, string? state, int attempts);
+
+    [LoggerMessage(Level = LogLevel.Debug,
+        Message = "Print job {CorrelationId} still printing; re-polling in {Delay} (attempt {Attempt}).")]
+    private partial void LogRePolling(string correlationId, TimeSpan delay, int attempt);
 }

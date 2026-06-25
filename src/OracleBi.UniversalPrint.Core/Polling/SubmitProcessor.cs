@@ -13,7 +13,7 @@ namespace OracleBi.UniversalPrint.Polling;
 /// first status poll. Returns the action the host should take (delete / dead-letter / retry).
 /// Mirrors <see cref="PollProcessor"/> so the retry / dead-letter rules live in one place.
 /// </summary>
-public sealed class SubmitProcessor
+public sealed partial class SubmitProcessor
 {
     private readonly PrintJobService _printJobService;
     private readonly IIdempotencyStore _idempotencyStore;
@@ -48,9 +48,7 @@ public sealed class SubmitProcessor
         // Poison protection: too many raw delivery attempts -> dead-letter.
         if (deliveryAttempt > _queue.MaxDeliveryAttempts)
         {
-            _logger.LogWarning(
-                "Submit message for {CorrelationId} exceeded {Max} delivery attempts; dead-lettering.",
-                message.CorrelationId, _queue.MaxDeliveryAttempts);
+            LogMaxDeliveryExceeded(message.CorrelationId, _queue.MaxDeliveryAttempts);
             return SubmitProcessingResult.Dead(BuildEnvelope(
                 message, DeadLetterReason.MaxDeliveryAttemptsExceeded, deliveryAttempt,
                 exceptionType: null, detail: $"DequeueCount={deliveryAttempt}"));
@@ -77,8 +75,7 @@ public sealed class SubmitProcessor
         {
             // Permanent rejection, checked before any Graph call (no job was created). Keep the
             // claim so a retry stays a no-op, and dead-letter for visibility.
-            _logger.LogWarning(
-                "Submit for {CorrelationId} rejected: {Reason}", message.CorrelationId, ex.Message);
+            LogSubmitRejected(message.CorrelationId, ex.Message);
             return SubmitProcessingResult.Dead(BuildEnvelope(
                 message, DeadLetterReason.SubmitRejected, deliveryAttempt,
                 exceptionType: ex.GetType().Name, detail: ex.Message));
@@ -87,9 +84,7 @@ public sealed class SubmitProcessor
         {
             // Pre-submit failure: no Universal Print job exists, so release the claim and rethrow
             // so the host abandons the message and the next delivery can re-attempt the submit.
-            _logger.LogWarning(ex,
-                "Submit for {CorrelationId} failed before the job was created; releasing claim and retrying.",
-                message.CorrelationId);
+            LogPreSubmitFailure(ex, message.CorrelationId);
             await ReleaseClaimBestEffortAsync(message.IdempotencyKey);
             throw;
         }
@@ -130,9 +125,7 @@ public sealed class SubmitProcessor
         var record = await _idempotencyStore.GetAsync(message.IdempotencyKey, cancellationToken);
         if (record is { IsCommitted: true })
         {
-            _logger.LogInformation(
-                "Submit for {CorrelationId} duplicates already-created job {JobId}; ensuring it is polled.",
-                message.CorrelationId, record.UniversalPrintJobId);
+            LogDuplicateCommitted(message.CorrelationId, record.UniversalPrintJobId);
             await _printJobService.ScheduleFirstPollAsync(
                 record.CorrelationId ?? message.CorrelationId,
                 record.PrinterId!,
@@ -141,9 +134,7 @@ public sealed class SubmitProcessor
             return SubmitProcessingResult.Duplicate();
         }
 
-        _logger.LogWarning(
-            "Submit for {CorrelationId} found an uncommitted in-flight claim; deferring to retry.",
-            message.CorrelationId);
+        LogUncommittedClaim(message.CorrelationId);
         throw new SubmitClaimPendingException(message.CorrelationId);
     }
 
@@ -157,11 +148,33 @@ public sealed class SubmitProcessor
         }
         catch (Exception releaseEx)
         {
-            _logger.LogError(releaseEx,
-                "Failed to release idempotency claim {Key}; a retry may be skipped as a duplicate.",
-                idempotencyKey);
+            LogReleaseFailed(releaseEx, idempotencyKey);
         }
     }
+
+    [LoggerMessage(Level = LogLevel.Warning,
+        Message = "Submit message for {CorrelationId} exceeded {Max} delivery attempts; dead-lettering.")]
+    private partial void LogMaxDeliveryExceeded(string correlationId, int max);
+
+    [LoggerMessage(Level = LogLevel.Warning,
+        Message = "Submit for {CorrelationId} rejected: {Reason}")]
+    private partial void LogSubmitRejected(string correlationId, string reason);
+
+    [LoggerMessage(Level = LogLevel.Warning,
+        Message = "Submit for {CorrelationId} failed before the job was created; releasing claim and retrying.")]
+    private partial void LogPreSubmitFailure(Exception ex, string correlationId);
+
+    [LoggerMessage(Level = LogLevel.Information,
+        Message = "Submit for {CorrelationId} duplicates already-created job {JobId}; ensuring it is polled.")]
+    private partial void LogDuplicateCommitted(string correlationId, string? jobId);
+
+    [LoggerMessage(Level = LogLevel.Warning,
+        Message = "Submit for {CorrelationId} found an uncommitted in-flight claim; deferring to retry.")]
+    private partial void LogUncommittedClaim(string correlationId);
+
+    [LoggerMessage(Level = LogLevel.Error,
+        Message = "Failed to release idempotency claim {Key}; a retry may be skipped as a duplicate.")]
+    private partial void LogReleaseFailed(Exception ex, string key);
 
     private static DeadLetterEnvelope BuildEnvelope(
         SubmitMessage message, DeadLetterReason reason, long deliveryAttempt, string? exceptionType, string? detail) =>

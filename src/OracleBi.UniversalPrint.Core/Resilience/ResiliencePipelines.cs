@@ -16,7 +16,7 @@ namespace OracleBi.UniversalPrint.Resilience;
 ///  - Cap total attempts so a permanently failing dependency is surfaced (and dead-lettered)
 ///    rather than retried forever.
 /// </summary>
-public static class ResiliencePipelines
+public static partial class ResiliencePipelines
 {
     /// <summary>Status codes we treat as transient and therefore retryable.</summary>
     private static readonly HashSet<HttpStatusCode> RetryableStatusCodes =
@@ -60,8 +60,8 @@ public static class ResiliencePipelines
                 },
                 OnRetry = args =>
                 {
-                    logger.LogWarning(
-                        "Transient failure on attempt {Attempt}. Retrying in {Delay}. Status={Status}",
+                    LogTransientHttpRetry(
+                        logger,
                         args.AttemptNumber + 1,
                         args.RetryDelay,
                         args.Outcome.Result?.StatusCode);
@@ -88,9 +88,9 @@ public static class ResiliencePipelines
                     args.Outcome.Exception is not null and not OperationCanceledException),
                 OnRetry = args =>
                 {
-                    logger.LogWarning(
+                    LogTransientOperationRetry(
+                        logger,
                         args.Outcome.Exception,
-                        "Transient operation failure on attempt {Attempt}. Retrying in {Delay}.",
                         args.AttemptNumber + 1,
                         args.RetryDelay);
                     return ValueTask.CompletedTask;
@@ -98,4 +98,12 @@ public static class ResiliencePipelines
             })
             .Build();
     }
+
+    [LoggerMessage(Level = LogLevel.Warning,
+        Message = "Transient failure on attempt {Attempt}. Retrying in {Delay}. Status={Status}")]
+    static partial void LogTransientHttpRetry(ILogger logger, int attempt, TimeSpan delay, HttpStatusCode? status);
+
+    [LoggerMessage(Level = LogLevel.Warning,
+        Message = "Transient operation failure on attempt {Attempt}. Retrying in {Delay}.")]
+    static partial void LogTransientOperationRetry(ILogger logger, Exception? exception, int attempt, TimeSpan delay);
 }

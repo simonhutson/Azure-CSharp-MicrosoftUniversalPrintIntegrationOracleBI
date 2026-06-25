@@ -23,7 +23,7 @@ namespace OracleBi.UniversalPrint.UniversalPrintIntegration;
 ///   4. start the job
 ///   5. poll job status
 /// </summary>
-public sealed class UniversalPrintProvider : IUniversalPrintProvider
+public sealed partial class UniversalPrintProvider : IUniversalPrintProvider
 {
     // Graph upload sessions require chunks that are a multiple of 320 KiB.
     private const int UploadChunkSize = 5 * 320 * 1024; // 1.6 MB
@@ -106,9 +106,7 @@ public sealed class UniversalPrintProvider : IUniversalPrintProvider
             job.UniversalPrintJobId = jobId;
             job.UpdatedAt = DateTimeOffset.UtcNow;
             _telemetry.JobSubmitted(printerId);
-            _logger.LogInformation(
-                "Submitted Universal Print job {JobId} (correlation {CorrelationId}) to printer {PrinterId}.",
-                jobId, correlationId, printerId);
+            LogJobSubmitted(jobId, correlationId, printerId);
 
             return job;
         }
@@ -117,8 +115,7 @@ public sealed class UniversalPrintProvider : IUniversalPrintProvider
             job.State = PrintJobState.Failed;
             job.LastError = ex.Message;
             _telemetry.JobFailed(printerId, ex.GetType().Name);
-            _logger.LogError(ex,
-                "Failed to submit Universal Print job (correlation {CorrelationId}).", correlationId);
+            LogJobSubmitFailed(ex, correlationId);
             throw;
         }
     }
@@ -287,14 +284,24 @@ public sealed class UniversalPrintProvider : IUniversalPrintProvider
         if (_logger.IsEnabled(LogLevel.Debug))
         {
             var body = await response.Content.ReadAsStringAsync(ct);
-            _logger.LogDebug(
-                "Universal Print '{Operation}' failed: {Status} {Body}",
-                operation, (int)response.StatusCode, body.Length <= 512 ? body : body[..512]);
+            LogOperationFailedDetail(operation, (int)response.StatusCode, body.Length <= 512 ? body : body[..512]);
         }
 
         throw new UniversalPrintException(
             $"Universal Print '{operation}' failed with status {(int)response.StatusCode}.");
     }
+
+    [LoggerMessage(Level = LogLevel.Information,
+        Message = "Submitted Universal Print job {JobId} (correlation {CorrelationId}) to printer {PrinterId}.")]
+    private partial void LogJobSubmitted(string jobId, string correlationId, string printerId);
+
+    [LoggerMessage(Level = LogLevel.Error,
+        Message = "Failed to submit Universal Print job (correlation {CorrelationId}).")]
+    private partial void LogJobSubmitFailed(Exception ex, string correlationId);
+
+    [LoggerMessage(Level = LogLevel.Debug,
+        Message = "Universal Print '{Operation}' failed: {Status} {Body}")]
+    private partial void LogOperationFailedDetail(string operation, int status, string body);
 }
 
 /// <summary>Raised for non-transient Universal Print / Microsoft Graph failures (after retries).</summary>

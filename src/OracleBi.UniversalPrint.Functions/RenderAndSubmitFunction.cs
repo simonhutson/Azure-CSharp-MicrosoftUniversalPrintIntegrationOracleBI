@@ -18,7 +18,7 @@ namespace OracleBi.UniversalPrint.Functions;
 ///   - Transient             → throw, so the Functions runtime retries; after host.json maxDequeueCount it
 ///                             is moved to the poison queue (belt-and-braces alongside our explicit DLQ).
 /// </summary>
-public sealed class RenderAndSubmitFunction
+public sealed partial class RenderAndSubmitFunction
 {
     private readonly SubmitProcessor _processor;
     private readonly IDeadLetterQueue _deadLetterQueue;
@@ -52,7 +52,7 @@ public sealed class RenderAndSubmitFunction
         {
             // Poison message: do not throw (that would just retry the same bad payload). Capture
             // it in the dead-letter queue with full context for inspection / replay.
-            _logger.LogError(ex, "Failed to deserialize submit message; dead-lettering.");
+            LogDeserializeFailed(ex);
             await _deadLetterQueue.DeadLetterAsync(new DeadLetterEnvelope
             {
                 CorrelationId = "unknown",
@@ -78,6 +78,9 @@ public sealed class RenderAndSubmitFunction
                 break;
         }
     }
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Failed to deserialize submit message; dead-lettering.")]
+    private partial void LogDeserializeFailed(Exception ex);
 
     private static long ReadDequeueCount(FunctionContext context)
     {
