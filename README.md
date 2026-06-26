@@ -113,6 +113,9 @@ and work breakdown live as durable artifacts:
 - [specs/](specs/README.md) — the feature spec, plan, tasks, and per-component implementation
   contracts (`specs/001-oraclebi-universalprint/`).
 
+For quick hand-authored starts on future increments (`003+`), copy
+`specs/_template-lightweight/` to `specs/NNN-<slug>/` and fill placeholders.
+
 For new features or modernization, add `specs/NNN-<slug>/` via `/speckit.specify` rather than editing
 code directly. See [specs/README.md](specs/README.md).
 

@@ -48,3 +48,17 @@ The solution already exists, so treat these as the baseline. For each new featur
 add a new numbered feature folder (e.g. `specs/002-<slug>/`) via `/speckit.specify`, keeping Spec Kit
 tooling updates separate from `specs/` artifact evolution (see the
 [Evolving Specs guide](https://github.com/github/spec-kit/blob/main/docs/guides/evolving-specs.md)).
+
+## Lightweight template for future increments
+
+For fast starts on future increments (`003`, `004`, and so on), copy
+[`_template-lightweight/`](_template-lightweight/):
+
+```powershell
+Copy-Item specs/_template-lightweight specs/003-my-feature -Recurse
+```
+
+Then update the placeholders in `spec.md`, `plan.md`, and `tasks.md`.
+
+Use this when you want a minimal, hand-authored starting point. Use `/speckit.specify` when you want
+Spec Kit to generate or refresh the full artifact set.
